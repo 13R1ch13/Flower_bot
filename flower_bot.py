@@ -203,7 +203,9 @@ async def list_user_orders(user_id: int) -> list[dict]:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
-            "SELECT o.id,o.status,o.total_u,o.created_at,b.title,b.size,b.number FROM orders o JOIN bouquets b ON b.id=o.bouquet_id WHERE o.user_id=? ORDER BY o.created_at DESC",
+            "SELECT o.id, o.status, o.total_u, o.created_at, b.title, b.size, b.number "
+            "FROM orders o JOIN bouquets b ON b.id = o.bouquet_id "
+            "WHERE o.user_id=? ORDER BY o.created_at DESC",
             (user_id,),
         )
         rows = await cur.fetchall()
