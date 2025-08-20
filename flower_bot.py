@@ -488,6 +488,13 @@ async def admin_add_price(m: Message, state: FSMContext):
 @router.message(AdminStates.add_wait_photo, F.photo)
 async def admin_add_photo(m: Message, state: FSMContext):
     d = await state.get_data()
+    required = {"number", "size", "title", "price_u"}
+    missing = required.difference(d.keys())
+    if missing:
+        logging.warning("Missing data in admin_add_photo: %s", ", ".join(sorted(missing)))
+        await m.answer("Incomplete data, please start again")
+        await state.clear()
+        return
     file_id = m.photo[-1].file_id
     async with aiosqlite.connect(DB_PATH) as db:
         try:
@@ -498,7 +505,7 @@ async def admin_add_photo(m: Message, state: FSMContext):
             await db.commit()
         except aiosqlite.IntegrityError:
             return await m.answer(
-                "Bouquet with this number already exists in this size."
+                "Bouquet with this number already exists in this size.",
             )
     await m.answer("Added!", reply_markup=main_menu())
     await state.clear()
