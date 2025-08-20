@@ -283,7 +283,8 @@ async def admin_add_size(cb: CallbackQuery, state: FSMContext):
 @router.message(AdminStates.add_wait_number)
 async def admin_add_number(m: Message, state: FSMContext):
     try: number = int(m.text.strip())
-    except: return await m.answer("Enter the number as digits.")
+    except ValueError:
+        return await m.answer("Enter the number as digits.")
     await state.update_data(number=number); await m.answer("Bouquet name/description (short):")
     await state.set_state(AdminStates.add_wait_title)
 
@@ -295,7 +296,8 @@ async def admin_add_title(m: Message, state: FSMContext):
 @router.message(AdminStates.add_wait_price)
 async def admin_add_price(m: Message, state: FSMContext):
     try: price = int(m.text.strip())
-    except: return await m.answer("Enter price as a number, $.")
+    except ValueError:
+        return await m.answer("Enter price as a number, $.")
     await state.update_data(price_u=price); await m.answer("Send bouquet photo as a single image:")
     await state.set_state(AdminStates.add_wait_photo)
 
