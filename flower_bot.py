@@ -181,7 +181,7 @@ async def get_bouquet_by_size_and_number(size: str, number: int) -> Bouquet | No
 async def create_order(
     user_id: int, bouquet_id: int, total_u: int, address: str, delivery_time: str
 ) -> str:
-    order_id = str(uuid.uuid4())[:8]
+    order_id = str(uuid.uuid4())
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "INSERT INTO orders(id,user_id,bouquet_id,address,delivery_time,total_u,created_at) VALUES(?,?,?,?,?,?,?)",
@@ -334,7 +334,7 @@ async def pay_test(cb: CallbackQuery, state: FSMContext):
         cb.from_user.id, d["bouquet_id"], d["price_u"], d["address"], d["delivery_time"]
     )
     await cb.message.answer(
-        f"Order <b>#{order_id}</b> created. Status: <b>awaiting payment</b> (test).",
+        f"Order <b>#{order_id[:8]}</b> created. Status: <b>awaiting payment</b> (test).",
         reply_markup=main_menu(),
     )
     await state.clear()
@@ -372,7 +372,7 @@ async def paid(m: Message, state: FSMContext):
         m.from_user.id, d["bouquet_id"], d["price_u"], d["address"], d["delivery_time"]
     )
     await m.answer(
-        f"Payment received! Order <b>#{order_id}</b> accepted.",
+        f"Payment received! Order <b>#{order_id[:8]}</b> accepted.",
         reply_markup=main_menu(),
     )
     await state.clear()
@@ -386,7 +386,7 @@ async def my_orders(m: Message):
     await m.answer(
         "\n\n".join(
             [
-                f"#<b>{r['id']}</b> — {r['title']} ({HUMAN_SIZE[r['size']]}, #{r['number']})\nStatus: {r['status']} • Total: ${r['total_u']} • {r['created_at'][:16]}"
+                f"#<b>{r['id'][:8]}</b> — {r['title']} ({HUMAN_SIZE[r['size']]}, #{r['number']})\nStatus: {r['status']} • Total: ${r['total_u']} • {r['created_at'][:16]}"
                 for r in rows[:10]
             ]
         )
