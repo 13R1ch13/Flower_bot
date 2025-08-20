@@ -1,7 +1,7 @@
 # bot.py
 # Minimal Telegram flower shop bot (aiogram v3.13)
 # Sends album of bouquets (no captions) + separate numbered list with prices.
-# Run: python3 bot.py
+# Run: python3 flower_bot.py
 
 import asyncio
 import logging
