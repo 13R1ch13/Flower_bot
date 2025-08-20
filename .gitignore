@@ -1,0 +1,6 @@
+.env
+.env.*
+flower_shop.db
+.DS_Store
+.venv/
+__pycache__/
