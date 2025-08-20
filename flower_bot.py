@@ -70,8 +70,8 @@ class OrderStates(StatesGroup):
 
 def main_menu():
     kb = ReplyKeyboardBuilder()
-    kb.button(text="Ассортимент"); kb.button(text="Мои заказы")
-    if ADMIN_IDS: kb.button(text="Админ")
+    kb.button(text="Catalog"); kb.button(text="My orders")
+    if ADMIN_IDS: kb.button(text="Admin")
     kb.adjust(2); return kb.as_markup(resize_keyboard=True)
 
 def size_keyboard() -> InlineKeyboardMarkup:
@@ -124,13 +124,13 @@ async def list_user_orders(user_id: int) -> list[dict]:
 # --- Handlers ---
 @router.message(CommandStart())
 async def start(m: Message):
-    await m.answer("Привет! Я бот цветочного магазина. Выберите 👉 <b>Ассортимент</b>.", reply_markup=main_menu())
+    await m.answer("Hello! I'm the flower shop bot. Choose 👉 <b>Catalog</b>.", reply_markup=main_menu())
 
-@router.message(F.text == "Ассортимент")
+@router.message(F.text == "Catalog")
 async def show_sizes(m: Message, state: FSMContext):
     await state.clear()
-    await m.answer("Выберите размер букета:")
-    await m.answer("Размеры:", reply_markup=size_keyboard())
+    await m.answer("Choose bouquet size:")
+    await m.answer("Sizes:", reply_markup=size_keyboard())
 
 @router.callback_query(F.data.startswith("size:"))
 async def picked_size(cb: CallbackQuery, state: FSMContext):
@@ -138,18 +138,18 @@ async def picked_size(cb: CallbackQuery, state: FSMContext):
     await state.update_data(size=size)
     items = await get_in_stock_by_size(size)
     if not items:
-        await cb.message.edit_text(f"Пока нет букетов размера {HUMAN_SIZE[size]} в наличии."); return await cb.answer()
+        await cb.message.edit_text(f"No {HUMAN_SIZE[size]} bouquets in stock right now."); return await cb.answer()
 
     # Album without captions
     media = [InputMediaPhoto(media=x.file_id) for x in items[:10]]
-    try: await cb.message.edit_text("Букеты в наличии:")
-    except Exception: await cb.message.answer("Букеты в наличии:")
+    try: await cb.message.edit_text("Bouquets available:")
+    except Exception: await cb.message.answer("Bouquets available:")
     await cb.message.answer_media_group(media)
 
     # Separate list with titles + prices
-    await cb.message.answer("\n".join([f"№{x.number} — {x.title} — ${x.price_u}" for x in items[:10]]))
+    await cb.message.answer("\n".join([f"#{x.number} — {x.title} — ${x.price_u}" for x in items[:10]]))
 
-    await cb.message.answer("Нажмите номер букетa:", reply_markup=numbers_keyboard([x.number for x in items[:30]]))
+    await cb.message.answer("Tap the bouquet number:", reply_markup=numbers_keyboard([x.number for x in items[:30]]))
     await state.set_state(OrderStates.waiting_bouquet_number); await cb.answer()
 
 @router.callback_query(OrderStates.waiting_bouquet_number, F.data.startswith("pick:"))
@@ -157,60 +157,60 @@ async def picked_number(cb: CallbackQuery, state: FSMContext):
     num = int(cb.data.split(":",1)[1])
     size = (await state.get_data()).get("size")
     item = await get_bouquet_by_size_and_number(size, num)
-    if not item: return await cb.answer("Нет такого номера", show_alert=True)
+    if not item: return await cb.answer("No such number", show_alert=True)
     await state.update_data(bouquet_id=item.id, bouquet_title=item.title, price_u=item.price_u)
-    await cb.message.answer(f"Вы выбрали: <b>№{item.number}</b> — {item.title}\nРазмер: {HUMAN_SIZE[item.size]}\nЦена: ${item.price_u}\n\nОтправьте адрес доставки:")
+    await cb.message.answer(f"You chose: <b>#{item.number}</b> — {item.title}\nSize: {HUMAN_SIZE[item.size]}\nPrice: ${item.price_u}\n\nSend the delivery address:")
     await state.set_state(OrderStates.waiting_address); await cb.answer()
 
-TIME_RE = re.compile(r"(сегодня|завтра)?\s*([0-2]?\d:[0-5]\d)", re.IGNORECASE)
+TIME_RE = re.compile(r"(today|tomorrow)?\s*([0-2]?\d:[0-5]\d)", re.IGNORECASE)
 
 @router.message(OrderStates.waiting_address)
 async def got_address(m: Message, state: FSMContext):
     addr = m.text.strip()
-    if len(addr) < 5: return await m.answer("Пожалуйста, укажите полный адрес.")
+    if len(addr) < 5: return await m.answer("Please enter the full address.")
     await state.update_data(address=addr)
-    await m.answer("Укажите желаемое время доставки (например: сегодня 18:30):")
+    await m.answer("Enter desired delivery time (e.g., today 18:30):")
     await state.set_state(OrderStates.waiting_time)
 
 @router.message(OrderStates.waiting_time)
 async def got_time(m: Message, state: FSMContext):
     t = m.text.strip()
-    if not TIME_RE.search(t): return await m.answer("Укажите время в формате HH:MM (можно 'сегодня'/'завтра').")
+    if not TIME_RE.search(t): return await m.answer("Enter time in HH:MM (optionally 'today'/'tomorrow').")
     data = await state.get_data()
     kb = InlineKeyboardBuilder()
     if PROVIDER_TOKEN:
-        kb.button(text="Оплатить в Telegram", callback_data="pay:invoice")
+        kb.button(text="Pay in Telegram", callback_data="pay:invoice")
     else:
-        kb.button(text="Оплатить картой (ссылка)", url="https://example-pay.page.link/checkout")
-        kb.button(text="Подтвердить без оплаты (тест)", callback_data="pay:test")
-    kb.button(text="⬅️ Назад", callback_data="pay:back")
+        kb.button(text="Pay by card (link)", url="https://example-pay.page.link/checkout")
+        kb.button(text="Confirm without payment (test)", callback_data="pay:test")
+    kb.button(text="⬅️ Back", callback_data="pay:back")
     await state.update_data(delivery_time=t)
-    await m.answer((f"<b>Проверим заказ:</b>\n"
-                    f"Букет: {data['bouquet_title']}\n"
-                    f"Сумма: ${data['price_u']}\n"
-                    f"Адрес: {data['address']}\n"
-                    f"Доставка: {t}\n\nЕсли всё верно — жмите оплату."),
+    await m.answer((f"<b>Check the order:</b>\n"
+                    f"Bouquet: {data['bouquet_title']}\n"
+                    f"Total: ${data['price_u']}\n"
+                    f"Address: {data['address']}\n"
+                    f"Delivery: {t}\n\nIf everything is correct — proceed to payment."),
                    reply_markup=kb.as_markup())
 
 @router.callback_query(F.data == "pay:back")
 async def pay_back(cb: CallbackQuery, state: FSMContext):
-    await cb.message.answer("Ок, открыл выбор размеров заново.", reply_markup=size_keyboard())
+    await cb.message.answer("OK, opened size selection again.", reply_markup=size_keyboard())
     await state.clear(); await cb.answer()
 
 @router.callback_query(F.data == "pay:test")
 async def pay_test(cb: CallbackQuery, state: FSMContext):
     d = await state.get_data()
     order_id = await create_order(cb.from_user.id, d["bouquet_id"], d["price_u"], d["address"], d["delivery_time"])
-    await cb.message.answer(f"Заказ <b>#{order_id}</b> оформлен. Статус: <b>ожидает оплаты</b> (тест).", reply_markup=main_menu())
+    await cb.message.answer(f"Order <b>#{order_id}</b> created. Status: <b>awaiting payment</b> (test).", reply_markup=main_menu())
     await state.clear(); await cb.answer()
 
 @router.callback_query(F.data == "pay:invoice")
 async def pay_invoice(cb: CallbackQuery, state: FSMContext):
-    if not PROVIDER_TOKEN: return await cb.answer("Платёжный провайдер не настроен", show_alert=True)
+    if not PROVIDER_TOKEN: return await cb.answer("Payment provider not configured", show_alert=True)
     d = await state.get_data()
     prices = [LabeledPrice(label=d["bouquet_title"], amount=d["price_u"]*100)]
     await bot.send_invoice(chat_id=cb.from_user.id, title=d["bouquet_title"],
-                           description=f"Доставка: {d['delivery_time']}\nАдрес: {d['address']}",
+                           description=f"Delivery: {d['delivery_time']}\nAddress: {d['address']}",
                            payload=f"order:{cb.from_user.id}", provider_token=PROVIDER_TOKEN,
                            currency="USD", prices=prices, need_name=True, need_phone_number=True,
                            need_shipping_address=False, start_parameter="flower_order")
@@ -219,31 +219,31 @@ async def pay_invoice(cb: CallbackQuery, state: FSMContext):
 @router.message(F.successful_payment)
 async def paid(m: Message, state: FSMContext):
     d = await state.get_data()
-    if not d: return await m.answer("Спасибо за оплату! Ваш заказ обрабатывается.")
+    if not d: return await m.answer("Thanks for the payment! Your order is being processed.")
     order_id = await create_order(m.from_user.id, d["bouquet_id"], d["price_u"], d["address"], d["delivery_time"])
-    await m.answer(f"Оплата получена! Заказ <b>#{order_id}</b> принят.", reply_markup=main_menu())
+    await m.answer(f"Payment received! Order <b>#{order_id}</b> accepted.", reply_markup=main_menu())
     await state.clear()
 
-@router.message(F.text == "Мои заказы")
+@router.message(F.text == "My orders")
 async def my_orders(m: Message):
     rows = await list_user_orders(m.from_user.id)
-    if not rows: return await m.answer("У вас пока нет заказов.")
-    await m.answer("\n\n".join([f"#<b>{r['id']}</b> — {r['title']} ({HUMAN_SIZE[r['size']]}, №{r['number']})\nСтатус: {r['status']} • Сумма: ${r['total_u']} • {r['created_at'][:16]}" for r in rows[:10]]))
+    if not rows: return await m.answer("You have no orders yet.")
+    await m.answer("\n\n".join([f"#<b>{r['id']}</b> — {r['title']} ({HUMAN_SIZE[r['size']]}, #{r['number']})\nStatus: {r['status']} • Total: ${r['total_u']} • {r['created_at'][:16]}" for r in rows[:10]]))
 
 # --- Admin ---
-@router.message(F.text == "Админ")
+@router.message(F.text == "Admin")
 async def admin(m: Message):
     if m.from_user.id not in ADMIN_IDS: return
-    kb = ReplyKeyboardBuilder(); kb.button(text="➕ Добавить букет"); kb.button(text="📦 Список букетов"); kb.button(text="⬅️ В меню"); kb.adjust(2)
-    await m.answer("Админ‑панель:", reply_markup=kb.as_markup(resize_keyboard=True))
+    kb = ReplyKeyboardBuilder(); kb.button(text="➕ Add bouquet"); kb.button(text="📦 Bouquet list"); kb.button(text="⬅️ Menu"); kb.adjust(2)
+    await m.answer("Admin panel:", reply_markup=kb.as_markup(resize_keyboard=True))
 
 class AdminStates(StatesGroup):
     add_wait_size = State(); add_wait_number = State(); add_wait_title = State(); add_wait_price = State(); add_wait_photo = State()
 
-@router.message(F.text == "⬅️ В меню")
-async def back_menu(m: Message): await m.answer("Главное меню:", reply_markup=main_menu())
+@router.message(F.text == "⬅️ Menu")
+async def back_menu(m: Message): await m.answer("Main menu:", reply_markup=main_menu())
 
-@router.message(F.text == "📦 Список букетов")
+@router.message(F.text == "📦 Bouquet list")
 async def admin_list(m: Message):
     if m.from_user.id not in ADMIN_IDS: return
     out = []
@@ -252,40 +252,40 @@ async def admin_list(m: Message):
         cur = await db.execute("SELECT * FROM bouquets ORDER BY size, number")
         for r in await cur.fetchall():
             mark = "✅" if r["in_stock"] else "❌"
-            out.append(f"{mark} {r['size'].upper()} №{r['number']} — {r['title']} — ${r['price_u']} (id:{r['id']})")
-    await m.answer("\n".join(out) if out else "Каталог пуст.")
+            out.append(f"{mark} {r['size'].upper()} #{r['number']} — {r['title']} — ${r['price_u']} (id:{r['id']})")
+    await m.answer("\n".join(out) if out else "Catalog is empty.")
 
-@router.message(F.text == "➕ Добавить букет")
+@router.message(F.text == "➕ Add bouquet")
 async def admin_add_start(m: Message, state: FSMContext):
     if m.from_user.id not in ADMIN_IDS: return
     kb = InlineKeyboardBuilder()
     for s in SIZES: kb.button(text=HUMAN_SIZE[s], callback_data=f"admin:add:size:{s}")
-    kb.adjust(3); await m.answer("Выберите размер нового букета:", reply_markup=kb.as_markup())
+    kb.adjust(3); await m.answer("Choose new bouquet size:", reply_markup=kb.as_markup())
     await state.set_state(AdminStates.add_wait_size)
 
 @router.callback_query(AdminStates.add_wait_size, F.data.startswith("admin:add:size:"))
 async def admin_add_size(cb: CallbackQuery, state: FSMContext):
     size = cb.data.split(":")[-1]; await state.update_data(size=size)
-    await cb.message.answer("Укажите номер букетa (целое число):")
+    await cb.message.answer("Enter bouquet number (integer):")
     await state.set_state(AdminStates.add_wait_number); await cb.answer()
 
 @router.message(AdminStates.add_wait_number)
 async def admin_add_number(m: Message, state: FSMContext):
     try: number = int(m.text.strip())
-    except: return await m.answer("Введите номер цифрами.")
-    await state.update_data(number=number); await m.answer("Название/описание букета (кратко):")
+    except: return await m.answer("Enter the number as digits.")
+    await state.update_data(number=number); await m.answer("Bouquet name/description (short):")
     await state.set_state(AdminStates.add_wait_title)
 
 @router.message(AdminStates.add_wait_title)
 async def admin_add_title(m: Message, state: FSMContext):
-    await state.update_data(title=m.text.strip()); await m.answer("Цена, $ (целое число):")
+    await state.update_data(title=m.text.strip()); await m.answer("Price, $ (integer):")
     await state.set_state(AdminStates.add_wait_price)
 
 @router.message(AdminStates.add_wait_price)
 async def admin_add_price(m: Message, state: FSMContext):
     try: price = int(m.text.strip())
-    except: return await m.answer("Введите цену числом, $.")
-    await state.update_data(price_u=price); await m.answer("Пришлите фото букетa одним изображением:")
+    except: return await m.answer("Enter price as a number, $.")
+    await state.update_data(price_u=price); await m.answer("Send bouquet photo as a single image:")
     await state.set_state(AdminStates.add_wait_photo)
 
 @router.message(AdminStates.add_wait_photo, F.photo)
@@ -295,20 +295,20 @@ async def admin_add_photo(m: Message, state: FSMContext):
         try:
             await db.execute("INSERT INTO bouquets(number,size,title,price_u,file_id,in_stock) VALUES(?,?,?,?,?,1)", (d["number"], d["size"], d["title"], d["price_u"], file_id))
             await db.commit()
-        except aiosqlite.IntegrityError: return await m.answer("Букет с таким номером уже есть в этом размере.")
-    await m.answer("Добавлено!", reply_markup=main_menu()); await state.clear()
+        except aiosqlite.IntegrityError: return await m.answer("Bouquet with this number already exists in this size.")
+    await m.answer("Added!", reply_markup=main_menu()); await state.clear()
 
 @router.message(Command("toggle"))
 async def toggle_item(m: Message, command: CommandObject):
     if m.from_user.id not in ADMIN_IDS: return
-    if not command.args or not command.args.strip().isdigit(): return await m.answer("Использование: /toggle <id>")
+    if not command.args or not command.args.strip().isdigit(): return await m.answer("Usage: /toggle <id>")
     item_id = int(command.args.strip())
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute("SELECT in_stock FROM bouquets WHERE id=?", (item_id,)); row = await cur.fetchone()
-        if not row: return await m.answer("Не найдено.")
+        if not row: return await m.answer("Not found.")
         new_val = 0 if row[0] else 1
         await db.execute("UPDATE bouquets SET in_stock=? WHERE id=?", (new_val, item_id)); await db.commit()
-    await m.answer(f"in_stock переключен на {new_val} для id={item_id}")
+    await m.answer(f"in_stock toggled to {new_val} for id={item_id}")
 
 @router.message(Command("seed"))
 async def seed(m: Message):
