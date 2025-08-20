@@ -33,6 +33,7 @@ dp = Dispatcher(); router = Router(); dp.include_router(router)
 DB_PATH = "flower_shop.db"
 SIZES = ["small","medium","big"]
 HUMAN_SIZE = {"small":"Small","medium":"Medium","big":"Big"}
+HUMAN_STATUS = {"pending_payment": "ожидает оплаты", "paid": "оплачен"}
 
 @dataclass
 class Bouquet:
@@ -106,11 +107,14 @@ async def get_bouquet_by_size_and_number(size: str, number: int) -> Bouquet|None
     return Bouquet(id=r["id"], number=r["number"], size=r["size"], title=r["title"],
                    price_u=r["price_u"], file_id=r["file_id"], in_stock=bool(r["in_stock"]))
 
-async def create_order(user_id: int, bouquet_id: int, total_u: int, address: str, delivery_time: str) -> str:
+async def create_order(user_id: int, bouquet_id: int, total_u: int, address: str, delivery_time: str,
+                       status: str = "pending_payment") -> str:
     order_id = str(uuid.uuid4())[:8]
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("INSERT INTO orders(id,user_id,bouquet_id,address,delivery_time,total_u,created_at) VALUES(?,?,?,?,?,?,?)",
-                         (order_id, user_id, bouquet_id, address, delivery_time, total_u, datetime.utcnow().isoformat()))
+        await db.execute(
+            "INSERT INTO orders(id,user_id,bouquet_id,address,delivery_time,status,total_u,created_at) VALUES(?,?,?,?,?,?,?,?)",
+            (order_id, user_id, bouquet_id, address, delivery_time, status, total_u, datetime.utcnow().isoformat()),
+        )
         await db.commit()
     return order_id
 
@@ -118,6 +122,15 @@ async def list_user_orders(user_id: int) -> list[dict]:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT o.id,o.status,o.total_u,o.created_at,b.title,b.size,b.number FROM orders o JOIN bouquets b ON b.id=o.bouquet_id WHERE o.user_id=? ORDER BY o.created_at DESC",(user_id,))
+        rows = await cur.fetchall()
+    return [dict(r) for r in rows]
+
+async def list_all_orders() -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT o.id,o.status,o.total_u,o.created_at,o.user_id,b.title,b.size,b.number FROM orders o JOIN bouquets b ON b.id=o.bouquet_id ORDER BY o.created_at DESC"
+        )
         rows = await cur.fetchall()
     return [dict(r) for r in rows]
 
@@ -201,7 +214,10 @@ async def pay_back(cb: CallbackQuery, state: FSMContext):
 async def pay_test(cb: CallbackQuery, state: FSMContext):
     d = await state.get_data()
     order_id = await create_order(cb.from_user.id, d["bouquet_id"], d["price_u"], d["address"], d["delivery_time"])
-    await cb.message.answer(f"Заказ <b>#{order_id}</b> оформлен. Статус: <b>ожидает оплаты</b> (тест).", reply_markup=main_menu())
+    await cb.message.answer(
+        f"Заказ <b>#{order_id}</b> оформлен. Статус: <b>{HUMAN_STATUS['pending_payment']}</b> (тест).",
+        reply_markup=main_menu(),
+    )
     await state.clear(); await cb.answer()
 
 @router.callback_query(F.data == "pay:invoice")
@@ -220,21 +236,35 @@ async def pay_invoice(cb: CallbackQuery, state: FSMContext):
 async def paid(m: Message, state: FSMContext):
     d = await state.get_data()
     if not d: return await m.answer("Спасибо за оплату! Ваш заказ обрабатывается.")
-    order_id = await create_order(m.from_user.id, d["bouquet_id"], d["price_u"], d["address"], d["delivery_time"])
-    await m.answer(f"Оплата получена! Заказ <b>#{order_id}</b> принят.", reply_markup=main_menu())
+    order_id = await create_order(
+        m.from_user.id, d["bouquet_id"], d["price_u"], d["address"], d["delivery_time"], status="paid"
+    )
+    await m.answer(
+        f"Оплата получена! Заказ <b>#{order_id}</b> принят. Статус: <b>{HUMAN_STATUS['paid']}</b>.",
+        reply_markup=main_menu(),
+    )
     await state.clear()
 
 @router.message(F.text == "Мои заказы")
 async def my_orders(m: Message):
     rows = await list_user_orders(m.from_user.id)
     if not rows: return await m.answer("У вас пока нет заказов.")
-    await m.answer("\n\n".join([f"#<b>{r['id']}</b> — {r['title']} ({HUMAN_SIZE[r['size']]}, №{r['number']})\nСтатус: {r['status']} • Сумма: ${r['total_u']} • {r['created_at'][:16]}" for r in rows[:10]]))
+    await m.answer(
+        "\n\n".join(
+            [
+                f"#<b>{r['id']}</b> — {r['title']} ({HUMAN_SIZE[r['size']]}, №{r['number']})\nСтатус: {HUMAN_STATUS.get(r['status'], r['status'])} • Сумма: ${r['total_u']} • {r['created_at'][:16]}"
+                for r in rows[:10]
+            ]
+        )
+    )
 
 # --- Admin ---
 @router.message(F.text == "Админ")
 async def admin(m: Message):
     if m.from_user.id not in ADMIN_IDS: return
-    kb = ReplyKeyboardBuilder(); kb.button(text="➕ Добавить букет"); kb.button(text="📦 Список букетов"); kb.button(text="⬅️ В меню"); kb.adjust(2)
+    kb = ReplyKeyboardBuilder()
+    kb.button(text="➕ Добавить букет"); kb.button(text="📦 Список букетов"); kb.button(text="📑 Заказы"); kb.button(text="⬅️ В меню")
+    kb.adjust(2)
     await m.answer("Админ‑панель:", reply_markup=kb.as_markup(resize_keyboard=True))
 
 class AdminStates(StatesGroup):
@@ -254,6 +284,20 @@ async def admin_list(m: Message):
             mark = "✅" if r["in_stock"] else "❌"
             out.append(f"{mark} {r['size'].upper()} №{r['number']} — {r['title']} — ${r['price_u']} (id:{r['id']})")
     await m.answer("\n".join(out) if out else "Каталог пуст.")
+
+@router.message(F.text == "📑 Заказы")
+async def admin_orders(m: Message):
+    if m.from_user.id not in ADMIN_IDS: return
+    rows = await list_all_orders()
+    if not rows: return await m.answer("Заказов нет.")
+    await m.answer(
+        "\n\n".join(
+            [
+                f"#<b>{r['id']}</b> — {r['title']} ({HUMAN_SIZE[r['size']]}, №{r['number']})\nСтатус: {HUMAN_STATUS.get(r['status'], r['status'])} • Сумма: ${r['total_u']} • {r['created_at'][:16]} • user:{r['user_id']}"
+                for r in rows[:20]
+            ]
+        )
+    )
 
 @router.message(F.text == "➕ Добавить букет")
 async def admin_add_start(m: Message, state: FSMContext):
