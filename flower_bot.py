@@ -561,7 +561,8 @@ async def seed(m: Message):
 
 
 async def on_startup():
-    await init_db()
+    if not os.path.exists(DB_PATH):
+        await init_db()
 
 
 async def main():
