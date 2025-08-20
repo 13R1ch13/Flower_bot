@@ -497,9 +497,12 @@ async def admin_add_photo(m: Message, state: FSMContext):
             )
             await db.commit()
         except aiosqlite.IntegrityError:
-            return await m.answer(
-                "Bouquet with this number already exists in this size."
+            await m.answer(
+                "Bouquet with this number already exists in this size.",
+                reply_markup=main_menu(),
             )
+            await state.clear()
+            return
     await m.answer("Added!", reply_markup=main_menu())
     await state.clear()
 
