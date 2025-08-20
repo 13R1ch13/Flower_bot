@@ -23,7 +23,18 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 PROVIDER_TOKEN = os.getenv("PROVIDER_TOKEN", "")
-ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()]
+
+
+def _parse_ids(env_value: str):
+    ids = []
+    for part in env_value.split(","):
+        part = part.split("#", 1)[0].strip()
+        if part.isdigit():
+            ids.append(int(part))
+    return ids
+
+
+ADMIN_IDS = _parse_ids(os.getenv("ADMIN_IDS", ""))
 if not BOT_TOKEN:
     raise SystemExit("Please set BOT_TOKEN in .env")
 
